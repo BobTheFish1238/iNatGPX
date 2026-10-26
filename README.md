@@ -1,7 +1,7 @@
 # iNatGPX
 <img width="766" height="392" alt="iNatGPX" src="https://github.com/user-attachments/assets/40b4494c-ebd9-429c-8265-03332ee13295" />
 
-Convert iNaturalist observations csv file into gpx to import into GaiaGPS for offline use
+Convert iNaturalist observations csv file into gpx to import into HribSpots or GaiaGPS for offline use
 
 App made with tasker: <a href="https://taskernet.com/shares/?user=AS35m8lAGpgBQ83OXLWZDvG6p8apkrN%2F1fP55SfSMPnL9nfjqOB6XzKERt34IoSd%2FTwoHVexw1ep&id=Project%3AiNatGPX">iNatGPX taskernet.com</a>
 
