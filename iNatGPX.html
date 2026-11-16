@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iNaturalist to GPX</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --green:#74ac00; --green-d:#5b8a00; --green-l:#eef6d9;
+  --bg:#f4f6f0; --card:#fff; --text:#1d2417; --muted:#667060; --line:#e1e6d8; --err:#c0392b; --errbg:#fdeceb;
+  --shadow:0 1px 2px rgba(20,30,10,.06),0 6px 24px rgba(20,30,10,.06);
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#12150f;--card:#1c211790;--card:#1b2017;--text:#eef2e6;--muted:#9aa492;--line:#2c3326;--green-l:#26311a;--errbg:#3a1f1c;--shadow:none}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 60px}
+header{display:flex;align-items:center;gap:12px;margin:8px 0 20px}
+h1{font-size:22px;margin:0;line-height:1.2}
+h1 span{color:var(--green)}
+header p{margin:0;color:var(--muted);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow)}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 12px;display:flex;justify-content:space-between;align-items:center}
+.drop{border:2px dashed var(--line);border-radius:14px;padding:34px 16px;text-align:center;cursor:pointer;transition:.15s}
+.drop:hover,.drop.over{border-color:var(--green);background:var(--green-l)}
+.drop svg{width:38px;height:38px;stroke:var(--green);margin-bottom:6px}
+.drop b{display:block;font-size:16px}
+.drop small{color:var(--muted)}
+.file-info{display:none;align-items:center;gap:10px;margin-top:12px;padding:10px 12px;background:var(--green-l);border-radius:10px;font-size:14px}
+.file-info.show{display:flex}
+.file-info .x{margin-left:auto;background:none;border:0;color:var(--muted);cursor:pointer;font-size:18px}
+.msg{display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--errbg);color:var(--err);font-size:14px}
+.msg.show{display:block}
+.months{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+@media(max-width:480px){.months{grid-template-columns:repeat(4,1fr)}}
+.m{border:1.5px solid var(--line);border-radius:8px;padding:4px 0;line-height:1.25;text-align:center;cursor:pointer;user-select:none;transition:.12s;background:transparent;color:var(--text);font:inherit}
+.m b{display:block;font-size:13px}
+.m small{display:block;font-size:10.5px;color:var(--muted);min-height:13px}
+.m.on{background:var(--green);border-color:var(--green);color:#fff}
+.m.on small{color:#ffffffcc}
+#chart svg{width:100%;height:auto;display:block;color:var(--muted)}
+#chart .band{cursor:pointer}
+#chart .band:hover .hit{fill:var(--green);fill-opacity:.08}
+#chart .empty-note{font-size:12px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0 14px;font-size:12.5px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend span{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.links button{background:none;border:0;color:var(--green-d);cursor:pointer;font:inherit;font-size:13px;padding:0 0 0 12px;text-transform:none;letter-spacing:0}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.switch{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600}
+.switch input{display:none}
+.track{width:42px;height:24px;border-radius:99px;background:var(--line);position:relative;transition:.15s;flex:none}
+.track::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.15s}
+.switch input:checked+.track{background:var(--green)}
+.switch input:checked+.track::after{left:21px}
+.hint{color:var(--muted);font-size:13px;margin:4px 0 0 52px}
+hr{border:0;border-top:1px solid var(--line);margin:16px 0}
+label.lbl{display:block;font-weight:600;margin-bottom:8px}
+input[type=number]{flex:1;min-width:100px;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font:inherit;background:transparent;color:var(--text)}
+input[type=number]:focus{outline:0;border-color:var(--green)}
+.seg{display:flex;border:1.5px solid var(--green);border-radius:10px;overflow:hidden}
+.seg button{border:0;background:none;padding:10px 16px;font:inherit;font-weight:600;color:var(--green-d);cursor:pointer}
+.seg button.on{background:var(--green);color:#fff}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+@media(max-width:480px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--green-l);border-radius:12px;padding:12px;text-align:center}
+.stat b{display:block;font-size:22px}
+.stat span{font-size:12px;color:var(--muted)}
+.files{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:12px}
+.f{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line);font-size:14px}
+.f:last-child{border:0}
+.f .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f .c{color:var(--muted);font-size:13px}
+.f button{border:1px solid var(--line);background:transparent;color:var(--text);border-radius:8px;padding:4px 10px;cursor:pointer;font:inherit;font-size:13px}
+.f button:hover{border-color:var(--green)}
+.btn{width:100%;margin-top:14px;border:0;border-radius:12px;background:var(--green);color:#fff;font:inherit;font-weight:700;font-size:16px;padding:14px;cursor:pointer;transition:.15s}
+.btn:hover{background:var(--green-d)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+details{font-size:14px}
+summary{cursor:pointer;font-weight:600;color:var(--green-d)}
+details ol{padding-left:20px;margin:10px 0 0}
+code{background:var(--green-l);padding:1px 6px;border-radius:5px;font-size:12.5px;word-break:break-all}
+a{color:var(--green-d)}
+.empty{color:var(--muted);text-align:center;padding:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><span>i</span>Naturalist Export to GPX</h1>
+      <p>Turn an observation export into waypoints for your GPS or map app. Runs entirely in your browser.</p>
+    </div>
+  </header>
+
+  <div class="card">
+    <h2>1 · Export file</h2>
+    <div class="drop" id="drop" tabindex="0">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+      <b>Drop your iNaturalist .zip here</b>
+      <small>or click to browse (a plain .csv works too)</small>
+    </div>
+    <input type="file" id="file" accept=".zip,.csv" hidden>
+    <div class="file-info" id="fileInfo"><span id="fileName"></span><button class="x" id="clear" title="Remove">×</button></div>
+    <div class="msg" id="err"></div>
+    <details style="margin-top:14px">
+      <summary>How do I get the export?</summary>
+      <ol>
+        <li>Open <a href="https://www.inaturalist.org/observations/export" target="_blank" rel="noopener">iNaturalist export</a></li>
+        <li>Select your place and taxon</li>
+        <li>Set <code>geoprivacy</code> and <code>taxon_geoprivacy</code> to <b>open</b>. Example query:<br><code>quality_grade=any&amp;identifications=any&amp;geoprivacy=open&amp;taxon_geoprivacy=open&amp;place_id=46&amp;taxon_id=48703</code></li>
+        <li>Enable only these columns: <code>observed_on_string</code> <code>quality_grade</code> <code>url</code> <code>latitude</code> <code>longitude</code> <code>positional_accuracy</code> <code>scientific_name</code> <code>common_name</code> <code>taxon_id</code></li>
+        <li>Export and download the zip file</li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>2 · Months <span class="links"><button id="allM">All</button><button id="noM">None</button></span></h2>
+    <div id="chart"></div>
+    <div class="legend" id="legend"></div>
+    <div class="months" id="months"></div>
+  </div>
+
+  <div class="card">
+    <h2>3 · Options</h2>
+    <label class="switch"><input type="checkbox" id="merge" checked><span class="track"></span>Merge species into one file</label>
+    <p class="hint">Off: one GPX per species, bundled in a zip.</p>
+    <hr>
+    <label class="lbl" for="acc">Coordinate precision limit</label>
+    <div class="row">
+      <input type="number" id="acc" value="300" min="0">
+      <div class="seg"><button id="um" class="on">m</button><button id="uft">ft</button></div>
+    </div>
+    <p class="hint" style="margin-left:0">Observations with less precise locations are skipped. Blank accuracy is kept.</p>
+  </div>
+
+  <div class="card" id="result">
+    <h2>4 · Result</h2>
+    <div class="stats">
+      <div class="stat"><b id="sSpecies">0</b><span>species</span></div>
+      <div class="stat"><b id="sPts">0</b><span>waypoints</span></div>
+      <div class="stat"><b id="sFiles">0</b><span>GPX files</span></div>
+      <div class="stat"><b id="sSize">0</b><span>total size</span></div>
+    </div>
+    <div class="files" id="files"><div class="empty">Upload a file to see results.</div></div>
+    <button class="btn" id="dl" disabled>Download GPX</button>
+  </div>
+</div>
+
+<script>
+const MN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const REQ=["latitude","longitude","positional_accuracy","scientific_name","common_name","observed_on_string","url","quality_grade","taxon_id"];
+const $=id=>document.getElementById(id);
+const st={rows:null,headers:null,taxonId:null,base:"",months:new Set([1,2,3,4,5,6,7,8,9,10,11,12]),unit:"m",out:null};
+
+// ---------- month chips ----------
+function renderMonths(){
+  const counts=Array(13).fill(0);
+  if(st.chart) st.chart.months.forEach(x=>counts[x.m]=x.total);
+  $("months").innerHTML=MN.map((n,i)=>`<button class="m ${st.months.has(i+1)?"on":""}" data-m="${i+1}"><b>${n}</b><small>${st.rows?counts[i+1]:"&nbsp;"}</small></button>`).join("");
+}
+$("months").onclick=e=>{const b=e.target.closest(".m");if(!b)return;const m=+b.dataset.m;st.months.has(m)?st.months.delete(m):st.months.add(m);renderMonths();recompute()};
+$("allM").onclick=()=>{st.months=new Set([1,2,3,4,5,6,7,8,9,10,11,12]);renderMonths();recompute()};
+$("noM").onclick=()=>{st.months.clear();renderMonths();recompute()};
+
+// ---------- chart ----------
+const PAL=["#74ac00","#2f80ed","#f2994a","#9b51e0","#eb5757","#00b8a9","#f2c94c","#e15fa6"],OTHER="#9aa492";
+const colorOf=k=>{const i=st.chart?st.chart.top.indexOf(k):-1;return i<0?OTHER:PAL[i]};
+function niceStep(x){const p=Math.pow(10,Math.floor(Math.log10(x))),f=x/p;return(f<=1?1:f<=2?2:f<=5?5:10)*p}
+function renderChart(){
+  const c=st.chart,W=600,H=200,L=36,B=22,T=8,R=4,pw=W-L-R,ph=H-T-B;
+  const ms=c?c.months:Array.from({length:12},(_,i)=>({m:i+1,segs:[],total:0}));
+  const base=Math.max(4,...ms.map(x=>x.total)),step=niceStep(base/4),ymax=Math.ceil(base/step)*step;
+  const y=v=>T+ph-v/ymax*ph,band=pw/12,bw=band*0.66;
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Observations per month">`;
+  for(let v=0;v<=ymax;v+=step){
+    s+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" stroke-opacity="${v?.18:.4}"/>`;
+    s+=`<text x="${L-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="currentColor">${v}</text>`;
+  }
+  ms.forEach((d,i)=>{
+    const x0=L+i*band,on=st.months.has(d.m);
+    s+=`<g class="band" data-m="${d.m}" opacity="${on?1:.28}">`;
+    s+=`<title>${MN[i]}: ${d.total} observation${d.total===1?"":"s"}${d.segs.map(g=>`\n${g.k}: ${g.v}`).join("")}</title>`;
+    s+=`<rect class="hit" x="${x0}" y="${T}" width="${band}" height="${ph+B}" fill="transparent"/>`;
+    let acc=0;
+    for(const g of d.segs){
+      const h=g.v/ymax*ph;acc+=g.v;
+      s+=`<rect x="${x0+(band-bw)/2}" y="${y(acc)}" width="${bw}" height="${h}" fill="${colorOf(g.k)}" stroke="var(--card)" stroke-width=".8"/>`;
+    }
+    s+=`<text x="${x0+band/2}" y="${H-6}" text-anchor="middle" font-size="11" fill="currentColor">${MN[i]}</text></g>`;
+  });
+  if(!c)s+=`<text class="empty-note" x="${L+pw/2}" y="${T+ph/2}" text-anchor="middle" fill="currentColor">Upload a file to see observations per month</text>`;
+  $("chart").innerHTML=s+"</svg>";
+  let lg="";
+  if(c){
+    lg=c.top.map(k=>`<span title="${esc(k)}"><i style="background:${colorOf(k)}"></i>${esc(k)} (${c.tot[k]})</span>`).join("");
+    if(c.hasOther)lg+=`<span><i style="background:${OTHER}"></i>Other (${c.otherTotal})</span>`;
+  }
+  $("legend").innerHTML=lg;
+}
+$("chart").onclick=e=>{const b=e.target.closest(".band");if(!b)return;const m=+b.dataset.m;st.months.has(m)?st.months.delete(m):st.months.add(m);renderMonths();recompute()};
+
+// ---------- options ----------
+$("merge").onchange=recompute;
+$("acc").oninput=recompute;
+function setUnit(u){
+  if(u===st.unit)return;
+  const v=parseFloat($("acc").value)||0;
+  $("acc").value=u==="ft"?Math.round(v/0.3048):Math.round(v*0.3048);
+  st.unit=u;$("um").classList.toggle("on",u==="m");$("uft").classList.toggle("on",u==="ft");recompute();
+}
+$("um").onclick=()=>setUnit("m");$("uft").onclick=()=>setUnit("ft");
+const accMeters=()=>{const v=parseFloat($("acc").value);const x=isNaN(v)?300:v;return st.unit==="ft"?x*0.3048:x};
+
+// ---------- file input ----------
+const drop=$("drop");
+drop.onclick=()=>$("file").click();
+drop.onkeydown=e=>{if(e.key==="Enter"||e.key===" ")$("file").click()};
+["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over")}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over")}));
+drop.addEventListener("drop",e=>{if(e.dataTransfer.files[0])load(e.dataTransfer.files[0])});
+$("file").onchange=e=>{if(e.target.files[0])load(e.target.files[0]);e.target.value=""};
+$("clear").onclick=reset;
+
+function showErr(t){$("err").innerHTML=t;$("err").classList.add("show")}
+function reset(){st.rows=null;st.out=null;$("fileInfo").classList.remove("show");$("err").classList.remove("show");st.chart=null;renderMonths();renderChart();render()}
+
+async function load(file){
+  reset();
+  try{
+    let csv="",readme="",base=file.name.replace(/\.csv\.zip$|\.zip$|\.csv$/i,"");
+    if(/\.zip$/i.test(file.name)){
+      const zip=await JSZip.loadAsync(file);
+      const names=Object.keys(zip.files).filter(n=>!zip.files[n].dir);
+      const csvName=names.find(n=>/\.csv$/i.test(n));
+      if(!csvName) return showErr("<b>Incompatible zip.</b> No .csv found. Please choose an iNaturalist export zip.");
+      csv=await zip.files[csvName].async("string");
+      const rn=names.find(n=>/(^|\/)readme\.txt$/i.test(n));
+      if(rn) readme=await zip.files[rn].async("string");
+    }else if(/\.csv$/i.test(file.name)){
+      csv=await file.text();
+    }else return showErr("<b>Error:</b> choose an iNaturalist export .zip file.");
+
+    const table=parseCSV(csv.replace(/^\uFEFF/,""));
+    if(table.length<2) return showErr("<b>Error:</b> the CSV is empty or invalid.");
+    const headers=table[0].map(h=>h.trim());
+    const missing=REQ.filter(c=>!headers.includes(c));
+    if(missing.length) return showErr("<b>Missing columns:</b><br>"+missing.join(", "));
+    const ix=Object.fromEntries(headers.map((h,i)=>[h,i]));
+
+    const rows=[];
+    for(let i=1;i<table.length;i++){
+      const r=table[i];
+      if(r.length<headers.length) continue;
+      const lat=parseFloat(r[ix.latitude]),lon=parseFloat(r[ix.longitude]);
+      if(isNaN(lat)||isNaN(lon)) continue;
+      const obs=r[ix.observed_on_string]||"";
+      rows.push({r,lat,lon,acc:parseFloat(r[ix.positional_accuracy]),obs,month:monthOf(obs),
+        sci:r[ix.scientific_name]||"Unknown",com:r[ix.common_name]||"",tid:(r[ix.taxon_id]||"").trim(),
+        url:r[ix.url]||"",qg:r[ix.quality_grade]||"unknown"});
+    }
+    st.rows=rows;st.headers=headers;
+    const m=readme.match(/[?&]taxon_id=(\d+)/);
+    st.taxonId=m?m[1]:null;st.base=base;
+
+    $("fileName").textContent=`${file.name} · ${rows.length.toLocaleString()} observations`;
+    $("fileInfo").classList.add("show");
+    renderMonths();recompute();
+  }catch(e){console.error(e);showErr("<b>Error:</b> couldn't read that file ("+e.message+").")}
+}
+
+// ---------- helpers ----------
+function parseCSV(text){
+  const out=[];let row=[],f="",q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){
+      if(c==='"'){ if(text[i+1]==='"'){f+='"';i++} else q=false }
+      else f+=c;
+    }else if(c==='"') q=true;
+    else if(c===","){row.push(f.trim());f=""}
+    else if(c==="\n"||c==="\r"){
+      if(c==="\r"&&text[i+1]==="\n")i++;
+      row.push(f.trim());f="";
+      if(row.length>1||row[0]!=="")out.push(row);
+      row=[];
+    }else f+=c;
+  }
+  if(f!==""||row.length){row.push(f.trim());out.push(row)}
+  return out;
+}
+function dateOf(s){
+  if(!s)return null;
+  let m=s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if(m)return new Date(+m[1],+m[2]-1,+m[3]);
+  m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m)return new Date(+m[3],+m[1]-1,+m[2]);
+  const d=new Date(s);return isNaN(d)?null:d;
+}
+const monthOf=s=>{const d=dateOf(s);return d?d.getMonth()+1:null};
+const fmtDate=s=>{const d=dateOf(s);return d?`${d.getMonth()+1}/${d.getDate()}/${d.getFullYear()}`:s};
+const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const safe=s=>(s||"iNat").replace(/[\\\/:*?"<>|]/g,"_").replace(/\s+/g,"_");
+const bytes=n=>n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":(n/1048576).toFixed(2)+" MB";
+const enc=new TextEncoder();
+
+// ---------- conversion ----------
+function recompute(){
+  if(!st.rows)return;
+  const limit=accMeters(),merge=$("merge").checked,H=st.headers;
+  const ix=Object.fromEntries(H.map((h,i)=>[h,i]));
+
+  // taxon_id -> common name, and frequency table
+  const byTaxon={},freq={};
+  for(const o of st.rows){
+    const n=(o.com||o.sci||"Unknown");
+    freq[n]=(freq[n]||0)+1;
+    if(o.tid)byTaxon[o.tid]=n;
+  }
+  let target="";
+  if(st.taxonId&&byTaxon[st.taxonId])target=byTaxon[st.taxonId];
+  else{let mx=0;for(const n in freq)if(freq[n]>mx){mx=freq[n];target=n}}
+  if(!target)target=st.base;
+
+  // chart data: per month, per species (accuracy filter applied, month filter only dims)
+  const mc=Array.from({length:13},()=>({})),tot={};
+  for(const o of st.rows){
+    if(!isNaN(o.acc)&&o.acc>=limit)continue;
+    if(!o.month)continue;
+    const k=(o.tid&&byTaxon[o.tid])||o.sci;
+    mc[o.month][k]=(mc[o.month][k]||0)+1;tot[k]=(tot[k]||0)+1;
+  }
+  const ranked=Object.keys(tot).sort((a,b)=>tot[b]-tot[a]);
+  const top=ranked.slice(0,PAL.length),topSet=new Set(top);
+  const cm=[];
+  for(let m=1;m<=12;m++){
+    const segs=top.map(k=>({k,v:mc[m][k]||0}));
+    let other=0;for(const k in mc[m])if(!topSet.has(k))other+=mc[m][k];
+    if(other)segs.push({k:"Other",v:other});
+    const f=segs.filter(g=>g.v);
+    cm.push({m,segs:f,total:f.reduce((a,g)=>a+g.v,0)});
+  }
+  st.chart={months:cm,top,hasOther:ranked.length>top.length,tot,otherTotal:ranked.slice(top.length).reduce((a,k)=>a+tot[k],0)};
+  renderChart();renderMonths();
+
+  const groups={},species=new Set();let total=0;
+  for(const o of st.rows){
+    if(!isNaN(o.acc)&&o.acc>=limit)continue;
+    if(o.month&&!st.months.has(o.month))continue;
+    const common=o.com||o.sci;
+    const acc=isNaN(o.acc)?0:o.acc;
+    const lines=[];
+    if(o.url)lines.push("Observation URL:\n"+o.url);
+    lines.push("Quality Grade: "+o.qg);
+    lines.push(`positional_accuracy: ${acc.toFixed(0)} m / ${(acc*3.28084).toFixed(0)} ft`);
+    H.forEach((h,j)=>{
+      if(["latitude","longitude","url","positional_accuracy","quality_grade"].includes(h))return;
+      if(o.r[j])lines.push(h+": "+o.r[j]);
+    });
+    const name="iNat "+common+(o.obs?` [${fmtDate(o.obs)}]`:"");
+    const key=merge?target:((o.tid&&byTaxon[o.tid])||o.sci);
+    (groups[key]=groups[key]||[]).push(`  <wpt lat="${o.lat}" lon="${o.lon}">\n    <name>${esc(name)}</name>\n    <desc>${esc(lines.join("\n\n"))}</desc>\n  </wpt>`);
+    species.add((o.tid&&byTaxon[o.tid])||o.sci);
+    total++;
+  }
+
+  const files=Object.entries(groups).map(([k,w])=>{
+    const text=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="iNat to GPX" xmlns="http://www.topografix.com/GPX/1/1">\n${w.join("\n")}\n</gpx>\n`;
+    return{name:safe(k)+".gpx",count:w.length,text,size:enc.encode(text).length};
+  }).sort((a,b)=>b.count-a.count);
+
+  st.out={files,total,target,species:species.size,size:files.reduce((s,f)=>s+f.size,0)};
+  render();
+}
+
+function render(){
+  const o=st.out||{files:[],total:0,species:0,size:0};
+  $("sSpecies").textContent=o.species.toLocaleString();
+  $("sPts").textContent=o.total.toLocaleString();
+  $("sFiles").textContent=o.files.length;
+  $("sSize").textContent=bytes(o.size);
+  $("files").innerHTML=o.files.length?o.files.map((f,i)=>`<div class="f"><span class="n" title="${esc(f.name)}">${esc(f.name)}</span><span class="c">${f.count.toLocaleString()} pts</span><button data-i="${i}">Save</button></div>`).join(""):`<div class="empty">${st.out?"No observations match these filters.":"Upload a file to see results."}</div>`;
+  const b=$("dl");b.disabled=!o.files.length;
+  b.textContent=o.files.length>1?`Download ${o.files.length} files (.zip)`:"Download GPX";
+}
+$("files").onclick=e=>{const b=e.target.closest("button");if(b){const f=st.out.files[+b.dataset.i];save(new Blob([f.text],{type:"application/gpx+xml"}),f.name)}};
+$("dl").onclick=async()=>{
+  const o=st.out;if(!o.files.length)return;
+  if(o.files.length===1){save(new Blob([o.files[0].text],{type:"application/gpx+xml"}),o.files[0].name);return}
+  const z=new JSZip();o.files.forEach(f=>z.file(f.name,f.text));
+  save(await z.generateAsync({type:"blob",compression:"DEFLATE"}),safe(o.target||st.base)+"_GPX.zip");
+};
+function save(blob,name){
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+renderMonths();renderChart();
+</script>
+</body>
+</html>
