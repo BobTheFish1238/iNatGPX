@@ -6,13 +6,16 @@
 <title>iNaturalist to GPX</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
-:root{
+:root, html.light{
   --green:#74ac00; --green-d:#5b8a00; --green-l:#eef6d9;
   --bg:#f4f6f0; --card:#fff; --text:#1d2417; --muted:#667060; --line:#e1e6d8; --err:#c0392b; --errbg:#fdeceb;
   --shadow:0 1px 2px rgba(20,30,10,.06),0 6px 24px rgba(20,30,10,.06);
 }
 @media (prefers-color-scheme:dark){
-  :root{--bg:#12150f;--card:#1c211790;--card:#1b2017;--text:#eef2e6;--muted:#9aa492;--line:#2c3326;--green-l:#26311a;--errbg:#3a1f1c;--shadow:none}
+  :root{--bg:#12150f;--card:#1b2017;--text:#eef2e6;--muted:#9aa492;--line:#2c3326;--green-l:#26311a;--errbg:#3a1f1c;--shadow:none}
+}
+html.dark{
+  --bg:#12150f;--card:#1b2017;--text:#eef2e6;--muted:#9aa492;--line:#2c3326;--green-l:#26311a;--errbg:#3a1f1c;--shadow:none;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -32,6 +35,7 @@ header p{margin:0;color:var(--muted);font-size:13px}
 .file-info.show{display:flex}
 .file-info .x{margin-left:auto;background:none;border:0;color:var(--muted);cursor:pointer;font-size:18px}
 .msg{display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--errbg);color:var(--err);font-size:14px}
+.msg.ok{background:var(--green-l);color:var(--green-d)}
 .msg.show{display:block}
 .months{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
 @media(max-width:480px){.months{grid-template-columns:repeat(4,1fr)}}
@@ -127,7 +131,7 @@ a{color:var(--green-d)}
   <div class="card">
     <h2>3 · Options</h2>
     <label class="switch"><input type="checkbox" id="merge" checked><span class="track"></span>Merge species into one file</label>
-    <p class="hint">Off: one GPX per species, bundled in a zip.</p>
+    <p class="hint" id="mergeHint">Off: one GPX per species, bundled in a zip.</p>
     <hr>
     <label class="lbl" for="acc">Coordinate precision limit</label>
     <div class="row">
@@ -147,6 +151,7 @@ a{color:var(--green-d)}
     </div>
     <div class="files" id="files"><div class="empty">Upload a file to see results.</div></div>
     <button class="btn" id="dl" disabled>Download GPX</button>
+    <div class="msg ok" id="savedMsg"></div>
   </div>
 </div>
 
@@ -226,7 +231,9 @@ $("file").onchange=e=>{if(e.target.files[0])load(e.target.files[0]);e.target.val
 $("clear").onclick=reset;
 
 function showErr(t){$("err").innerHTML=t;$("err").classList.add("show")}
-function reset(){st.rows=null;st.out=null;$("fileInfo").classList.remove("show");$("err").classList.remove("show");st.chart=null;renderMonths();renderChart();render()}
+function showSaved(t){$("savedMsg").innerHTML=t;$("savedMsg").classList.add("show")}
+function hideSaved(){$("savedMsg").classList.remove("show")}
+function reset(){st.rows=null;st.out=null;st.singleFolder=null;$("fileInfo").classList.remove("show");$("err").classList.remove("show");hideSaved();st.chart=null;renderMonths();renderChart();render()}
 
 async function load(file){
   reset();
@@ -372,23 +379,66 @@ function recompute(){
     return{name:safe(k)+".gpx",count:w.length,text,size:enc.encode(text).length};
   }).sort((a,b)=>b.count-a.count);
 
+  st.singleFolder=null;
   st.out={files,total,target,species:species.size,size:files.reduce((s,f)=>s+f.size,0)};
   render();
 }
 
+function hasNativeBridge(){
+  return !!(window.Tasker && (typeof window.Tasker.saveInatGpxInFolder==="function" || typeof window.Tasker.saveInatGpx==="function"));
+}
+function saveNativeFiles(list,reuseSingleFolder){
+  const o=st.out||{};
+  const baseFolder=(o.target||st.base||"iNat").trim();
+  let folder="";
+  if(typeof window.Tasker.resolveInatFolder==="function"){
+    if(reuseSingleFolder && st.singleFolder){
+      folder=st.singleFolder;
+    }else{
+      folder=window.Tasker.resolveInatFolder(baseFolder);
+      if(reuseSingleFolder) st.singleFolder=folder;
+    }
+  }
+  let savedCount=0;
+  for(const f of list){
+    const ok=(typeof window.Tasker.saveInatGpxInFolder==="function" && folder)
+      ? window.Tasker.saveInatGpxInFolder(folder,f.name,f.text)
+      : window.Tasker.saveInatGpx(f.name,f.text);
+    if(ok) savedCount++;
+  }
+  if(savedCount>0){
+    const dest=folder?`HribSpots/iNatGPX/${folder}`:"HribSpots/iNatGPX";
+    showSaved(`<b>Saved ${savedCount} GPX file${savedCount===1?"":"s"} to ${esc(dest)}</b>.<br>Switch back to HribSpots → Folders → <b>iNatGPX folder</b> to enable them on your map.`);
+  }else{
+    showErr("<b>Error:</b> failed to save GPX files to HribSpots/iNatGPX.");
+  }
+}
 function render(){
   const o=st.out||{files:[],total:0,species:0,size:0};
+  const native=hasNativeBridge();
+  $("mergeHint").textContent=native?"Off: one GPX per species, saved inside the taxon folder in HribSpots/iNatGPX.":"Off: one GPX per species, bundled in a zip.";
   $("sSpecies").textContent=o.species.toLocaleString();
   $("sPts").textContent=o.total.toLocaleString();
   $("sFiles").textContent=o.files.length;
   $("sSize").textContent=bytes(o.size);
   $("files").innerHTML=o.files.length?o.files.map((f,i)=>`<div class="f"><span class="n" title="${esc(f.name)}">${esc(f.name)}</span><span class="c">${f.count.toLocaleString()} pts</span><button data-i="${i}">Save</button></div>`).join(""):`<div class="empty">${st.out?"No observations match these filters.":"Upload a file to see results."}</div>`;
   const b=$("dl");b.disabled=!o.files.length;
-  b.textContent=o.files.length>1?`Download ${o.files.length} files (.zip)`:"Download GPX";
+  if(native){
+    const folderLabel=(o.target||st.base||"iNat").trim();
+    b.textContent=o.files.length>1?`Download ${o.files.length} GPX files to ${folderLabel}`:`Download GPX to ${folderLabel}`;
+  }else{
+    b.textContent=o.files.length>1?`Download ${o.files.length} files (.zip)`:"Download GPX";
+  }
 }
-$("files").onclick=e=>{const b=e.target.closest("button");if(b){const f=st.out.files[+b.dataset.i];save(new Blob([f.text],{type:"application/gpx+xml"}),f.name)}};
+$("files").onclick=e=>{
+  const b=e.target.closest("button");if(!b)return;
+  const f=st.out.files[+b.dataset.i];
+  if(hasNativeBridge()){saveNativeFiles([f],true);return;}
+  save(new Blob([f.text],{type:"application/gpx+xml"}),f.name);
+};
 $("dl").onclick=async()=>{
-  const o=st.out;if(!o.files.length)return;
+  const o=st.out;if(!o||!o.files.length)return;
+  if(hasNativeBridge()){saveNativeFiles(o.files,false);return;}
   if(o.files.length===1){save(new Blob([o.files[0].text],{type:"application/gpx+xml"}),o.files[0].name);return}
   const z=new JSZip();o.files.forEach(f=>z.file(f.name,f.text));
   save(await z.generateAsync({type:"blob",compression:"DEFLATE"}),safe(o.target||st.base)+"_GPX.zip");
@@ -397,7 +447,8 @@ function save(blob,name){
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;
   document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
-renderMonths();renderChart();
+window.onBridgeReady=render;
+renderMonths();renderChart();render();
 </script>
 </body>
 </html>
